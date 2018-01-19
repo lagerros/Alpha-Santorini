@@ -11,7 +11,9 @@ import M
 #from toy_problems import playback_game
 import os
 import shutil
-import time
+import multiprocessing
+import threading
+from time import sleep
 
 ####################
 # OVERALL SETTINGS #
@@ -81,9 +83,62 @@ class train_set():
         z = np.expand_dims(np.stack([self.history[:][idx][2] for idx in idxes], 0), 1)
         legal_moves = np.stack([self.history[:][idx][3] for idx in idxes], 0)
         return s, pi_s, z, legal_moves
-        
-history = train_set()
+    
+    
+def self_play(player1, player2=None, storage=history):
+    game = santorini.Game() 
+    p1 = M.MCTS(game, player1, sess, explore) 
 
+    if player2 != None:
+        evaluation = True
+        p2 = M.MCTS(game, player2, sess, explore) 
+        players = [p1, p2]
+    else:
+        evaluation = False
+               
+    #m = M.MCTS(game, player1, sess, explore)            
+    temp_history = []
+
+    done = False
+
+    while done == False:
+        if evaluation:
+            player = game.turn_count%2    
+            tree = players[player]
+            other_tree = players[(player+1)%2]
+        else:
+            tree = p1
+            
+        t0 = time.time()
+        done = tree.consider_resigning(v_resign, observe_games)  
+        a, pi_s, P = tree.run_simulation(search_depth)
+        temp_history.extend([[game.stack_s(), pi_s, game.legal_moves(binaryV=True)]])
+        if evaluation:
+            other_tree.prepare_adversarial_move(a)
+        game.move(a)
+        done = game.done
+        if evaluation:
+            other_tree.finish_adversarial_move(a)
+        tree.prepare_next_move()
+
+        if observe_games:
+            for i in range(10):
+                print("\n")
+            print("P (predicted tree search probs):\n%s\n\n" % np.reshape(P, [5,5]),
+                  "pi (actual tree search probs):\n%s\n\n" % np.reshape(pi_s, [5,5]),
+                  "Chosen move: %s\n" % a,
+                  "Overall game state:\n%s\n\n" % game.render())
+        print("time: ", time.time()-t0)
+
+    z = game.outcome
+    
+    #store data
+    for entry in temp_history:
+        storage.add(entry[0], entry[1], z, entry[2])
+        
+  #  return z, temp_history    
+    
+history = train_set()
 
 #############
 # SELF-PLAY #
@@ -111,8 +166,6 @@ for step in range(steps):
     with tf.Session() as sess:
         if load_model == True and step > 0:
             print("Restoring model...")
-            copy_rename(current_dir, parent_dir, "champion.ckpt", "challenger.ckpt")
-            trv.rename(parent_dir+"challenger.ckpt", "Champion", "Challenger")
             saver.restore(sess, parent_dir+"champion.ckpt") 
         
             
@@ -122,38 +175,21 @@ for step in range(steps):
         
         for i in range(num_games):
             print("game ", i)
-            game = santorini.Game() 
+            coord = tf.train.Coordinator()
+            num_workers = multiprocessing.cpu_count()
+            print("Utilizing %s CPUs" % num_workers)
+            #self_play(challenger)
             
-            m = M.MCTS(game, challenger, sess, explore)            
-            temp_history = []
+            worker_threads = []
+            for n in range(num_workers):
+                worker_work = lambda: self_play(challenger)
+                t = threading.Thread(target=(worker_work))
+                t.start()
+                sleep(0.5)
+                worker_threads.append(t)
+            coord.join(worker_threads)
 
-            done = False
-
-            while done == False:
-                t0 = time.time()
-                t0_cpu = time.clock()
-                done = m.consider_resigning(v_resign, observe_games)  
-                a, pi_s, P = m.run_simulation(search_depth)
-                temp_history.extend([[game.stack_s(), pi_s, game.legal_moves(binaryV=True)]])
-                game.move(a)
-                done = game.done
-                m.prepare_next_move()
-
-                if observe_games:
-                    for i in range(10):
-                        print("\n")
-                    print("P (predicted tree search probs):\n", np.reshape(P, [5,5]),
-                          "pi (actual tree search probs): %s", pi_s,
-                          "Chosen move: ", a,
-                          "Overall game state:\n",
-                          game.render())
-                print("time: %s", time.time()-t0, time.clock()-t0_cpu)
-
-            z = game.outcome
-
-            #store data
-            for x in temp_history:
-                history.add(x[0], x[1], z, x[2])   
+              
         
         #############
         # TRAINING #
@@ -171,14 +207,7 @@ for step in range(steps):
                     loss = challenger.train(s, z, pi_s, legal_moves, sess)
                     print("loss: ", loss[0])  
         
-#            save_path = saver.save(sess, current_dir+"challenger.ckpt")
-#            if step == 0:
-#                saver.save(sess, current_dir+"champion.ckpt")  
-#                trv.rename(current_dir+"champion.ckpt", "Challenger", "Champion", add_prefix=False, dry_run=False)
-            
-#            print("Model saved in file: %s" % save_path)
-#            #trv.rename("/home/jakey/Alpha/current.ckpt", "Best", "Current", add_prefix=False, dry_run=False)
-                
+          
     #############
     # TESTING  #
     ############
@@ -199,50 +228,13 @@ for step in range(steps):
             
             for i in range(num_test_games):
                 print(i)
-                game = santorini.Game()
-                done = False
-                coinflip = np.random.choice([-1, 0, 1, 2, 4, 5])
-                game = toy_problem(game, coinflip)
-                m_current = M.MCTS(game, challenger, sess, explore)  #alternate who goes first
-                m_best = M.MCTS(game, champion, sess, explore)
-                players = [m_current, m_best]
-                
-                while done == False:
-                    player = game.turn_count%2    
-            
-                    tree = players[player]
-                    other_tree = players[(player+1)%2]
-                    
-                    done = tree.consider_resigning(v_resign, observe_games)
-                    tree.run_simulation(search_depth)
-                    a = tree.move
-                    other_tree.prepare_adversarial_move(a)
-                    game.move(a)
-                    done = game.done
-                    other_tree.finish_adversarial_move(a)
-                    tree.prepare_next_move()
-                    
-                    if observe_games:
-                        print("\n\n\n\n")
-                        print("Overall game state:")
-                        print(game.render())
-                if game.outcome == -1:
+                z, temp_history = self_play(champion, champion)
+
+                if z == -1:
                     current_streak += 1            
                              
             if current_streak/num_test_games > 0.55:
                 print("We have a new champion! Saving and renaming...")
-                key = str(np.random.choice(1000))
-                champion_saver = tf.train.Saver(var_list=
-                                                tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Champion'))
-                champion_saver.save(sess, archive_dir+key+".ckpt")
-
-                challenger_saver = tf.train.Saver(var_list=
-                                                tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Challenger'))
-                challenger_saver.save(sess, current_dir+"champion.ckpt")
 
            
-        tf.reset_default_graph()
         
-        if current_streak/num_test_games > 0.55:
-            trv.rename(current_dir+"champion.ckpt", "Challenger", "Champion", add_prefix=False, dry_run=False)
-  
