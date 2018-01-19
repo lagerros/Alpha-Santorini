@@ -5,10 +5,10 @@ import tensorflow_rename_variables as trv
 import time
 import math
 import santorini 
-import nets
+import nets as net
 import M
-from toy_problems import toy_problem
-from toy_problems import playback_game
+#from toy_problems import toy_problem
+#from toy_problems import playback_game
 import os
 import shutil
 
