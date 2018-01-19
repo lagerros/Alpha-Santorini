@@ -243,8 +243,9 @@ class MCTS():
         if use_net:
             P, v = evaluate(node, self.net, self.sess)
             node.P = P[0,:]
-            assert np.shape(node.P) == (board_size**2,)
-            assert np.abs(np.sum(node.P)-1) < 0.01 # Ensure P is a density function, with some margin for error
+            if not(without_net):
+                assert np.shape(node.P) == (board_size**2,)
+                assert np.abs(np.sum(node.P)-1) < 0.01 # Ensure P is a density function, with some margin for error
             for a in node.A:
                 node.get(a).P = node.P[a]
             node.v = v
