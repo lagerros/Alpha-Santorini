@@ -52,7 +52,7 @@ class deep_net():
             #policy head
             pre_p = conv_block(self.get_tower(height), 2, tf.nn.relu, self.phase, 1)
             self.pre_p = tf.contrib.layers.flatten(pre_p)
-            self.p_w_illegal = tf.contrib.layers.fully_connected(self.pre_p, num_outputs=pow(board_size,2), activation_fn=None) 
+            self.p_w_illegal = tf.contrib.layers.fully_connected(self.pre_p, num_outputs=pow(board_size,2), activation_fn=tf.nn.softmax) 
             self.legal_moves = tf.placeholder(dtype=tf.float32, shape=[None, pow(board_size,2)])
             p = tf.multiply(self.p_w_illegal, self.legal_moves)
             self.p = tf.divide(p, tf.reduce_sum(p))  #doesn't use softmax because want to preserve 0's
