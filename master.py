@@ -17,7 +17,7 @@ import time
 # OVERALL SETTINGS #
 ####################
 board_size = 5
-search_depth = 1600
+search_depth = 500
 testing = 1
 training = 1
 v_resign = 0.75
