@@ -131,6 +131,7 @@ for step in range(steps):
 
             while done == False:
                 t0 = time.time()
+                t0_cpu = time.clock()
                 done = m.consider_resigning(v_resign, observe_games)  
                 a, pi_s, P = m.run_simulation(search_depth)
                 temp_history.extend([[game.stack_s(), pi_s, game.legal_moves(binaryV=True)]])
@@ -146,7 +147,7 @@ for step in range(steps):
                           "Chosen move: ", a,
                           "Overall game state:\n",
                           game.render())
-                print("time: %s", time.time()-t0)
+                print("time: %s", time.time()-t0, time.clock()-t0_cpu)
 
             z = game.outcome
 
