@@ -285,7 +285,9 @@ class MCTS():
                 node.v = v[0,0]
 
             node.P = temp_P[0]
-            assert np.shape(node.P) == (board_size**2,)
+            if not(without_net):
+                assert np.shape(node.P) == (board_size**2,)
+                assert np.abs(np.sum(node.P)-1) < 0.01 # Ensure P is a density function, with some margin for error
 
         assert np.sum(np.nonzero(node.P)[0] == node.A) == len(node.A)
 
