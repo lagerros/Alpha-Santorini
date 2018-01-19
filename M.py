@@ -8,7 +8,7 @@ tau = 1    # from 2017 paper
 
 board_size = 5
 debug = 0
-without_net = 1 # can be used to compare performance with or without network
+without_net = 0 # can be used to compare performance with or without network
 
 ####################
 # HELPER FUNCTIONS #
