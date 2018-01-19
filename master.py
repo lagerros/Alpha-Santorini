@@ -85,7 +85,7 @@ class train_set():
         return s, pi_s, z, legal_moves
     
     
-def self_play(player1, player2=None, storage=history):
+def self_play(player1, player2=None, storage):
     game = santorini.Game() 
     p1 = M.MCTS(game, player1, sess, explore) 
 
@@ -182,7 +182,7 @@ for step in range(steps):
             
             worker_threads = []
             for n in range(num_workers):
-                worker_work = lambda: self_play(challenger)
+                worker_work = lambda: self_play(challenger, storage=history)
                 t = threading.Thread(target=(worker_work))
                 t.start()
                 sleep(0.5)
