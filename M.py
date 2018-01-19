@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from profilestats import profile
+#from profilestats import profile
 import copy
 
 c_puct = 5 # from 2016 paper
