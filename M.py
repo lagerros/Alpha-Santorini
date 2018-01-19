@@ -206,8 +206,8 @@ class MCTS():
         try:          
             self.root.expand(self.game) 
             self.clear_unnecessary_branches()    
-            
-            print("assigning node ", a, " as new root")
+            if debug:
+                print("assigning node ", a, " as new root")
         except:  # occurs if there are no available moves
             pass
      
