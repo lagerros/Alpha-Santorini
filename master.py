@@ -11,6 +11,7 @@ import M
 #from toy_problems import playback_game
 import os
 import shutil
+import time
 
 ####################
 # OVERALL SETTINGS #
@@ -129,7 +130,7 @@ for step in range(steps):
             done = False
 
             while done == False:
-                
+                t0 = time.time()
                 done = m.consider_resigning(v_resign, observe_games)  
                 a, pi_s, P = m.run_simulation(search_depth)
                 temp_history.extend([[game.stack_s(), pi_s, game.legal_moves(binaryV=True)]])
@@ -145,6 +146,7 @@ for step in range(steps):
                           "Chosen move: ", a,
                           "Overall game state:\n",
                           game.render())
+                print("time: %s", time.time()-t0)
 
             z = game.outcome
 
