@@ -5,7 +5,7 @@ import tensorflow_rename_variables as trv
 import time
 import math
 import santorini 
-import net
+import nets
 import M
 from toy_problems import toy_problem
 from toy_problems import playback_game
@@ -16,14 +16,14 @@ import shutil
 # OVERALL SETTINGS #
 ####################
 board_size = 5
-search_depth = 5
+search_depth = 1600
 testing = 1
 training = 1
 v_resign = 0.75
 
-observe_games = 0
+observe_games = 1
 explore = True
-load_model = True
+load_model = False
 
 parent_dir = "/home/jakey/Alpha/"
 archive_dir = parent_dir + "Archive/"
@@ -168,13 +168,13 @@ for step in range(steps):
                     loss = challenger.train(s, z, pi_s, legal_moves, sess)
                     print("loss: ", loss[0])  
         
-            save_path = saver.save(sess, current_dir+"challenger.ckpt")
-            if step == 0:
-                saver.save(sess, current_dir+"champion.ckpt")  
-                trv.rename(current_dir+"champion.ckpt", "Challenger", "Champion", add_prefix=False, dry_run=False)
+#            save_path = saver.save(sess, current_dir+"challenger.ckpt")
+#            if step == 0:
+#                saver.save(sess, current_dir+"champion.ckpt")  
+#                trv.rename(current_dir+"champion.ckpt", "Challenger", "Champion", add_prefix=False, dry_run=False)
             
-            print("Model saved in file: %s" % save_path)
-            #trv.rename("/home/jakey/Alpha/current.ckpt", "Best", "Current", add_prefix=False, dry_run=False)
+#            print("Model saved in file: %s" % save_path)
+#            #trv.rename("/home/jakey/Alpha/current.ckpt", "Best", "Current", add_prefix=False, dry_run=False)
                 
     #############
     # TESTING  #
@@ -189,7 +189,7 @@ for step in range(steps):
         
         
         with tf.Session() as sess:
-            saver.restore(sess, current_dir+"champion.ckpt") 
+        #    saver.restore(sess, current_dir+"champion.ckpt") 
             print("Starting testing vs previous champion...")
             time.sleep(3)
             sess.run(tf.global_variables_initializer())                 
