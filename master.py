@@ -16,14 +16,14 @@ from time import sleep
 # OVERALL SETTINGS #
 ####################
 board_size = 5
-search_depth = 160
+search_depth = int(input("Search depth?"))
 testing = 1
 training = 1
 v_resign = 0.75
 
 observe_games = 0
 explore = True
-load_model = False
+load_model = bool(input("Load model? 0/1"))
 parallell = 1
 
 save_dir = "/home/jakey/"
