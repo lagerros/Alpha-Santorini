@@ -23,7 +23,7 @@ v_resign = 0.75
 
 observe_games = 0
 explore = True
-load_model = bool(input("Load model? 0/1"))
+load_model = bool(int(input("Load model? 0/1")))
 parallell = 1
 
 save_dir = "/home/jakey/"
