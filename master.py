@@ -23,7 +23,7 @@ v_resign = 0.75
 
 observe_games = 0
 explore = True
-load_model = True
+load_model = False
 parallell = 1
 
 save_dir = "/home/jakey/"
