@@ -17,11 +17,9 @@ from time import sleep
 ####################
 board_size = 5
 search_depth = int(input("Search depth?\n"))
-testing = 1
-training = 1
 v_resign = 0.75
 
-observe_games = 0
+observe_games = int(input("Observe games?"))
 explore = True
 load_model = bool(int(input("Load model? 0/1\n")))
 parallell = int(input("Asynchronous? 0/1\n"))
@@ -276,12 +274,12 @@ with tf.Session() as sess:
            
            
            print("Starting self-play...")
-           self_play(history, challenger, num_games=2)
+           self_play(history, challenger, num_games=10)
            
-           train(history, challenger, epochs=2)
+           train(history, challenger, epochs=20)
            
            print("Evaluating new challenger...")
-           evaluator(history, challenger, champion, coord, sess, num_games=3)
+           evaluator(history, challenger, champion, coord, sess, num_games=5)
 
            
            print("Saving...")
