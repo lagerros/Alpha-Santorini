@@ -18,7 +18,7 @@ def filter(in_channel, out_channel, kernel_size):
         return tf.Variable(initial_value=tf.contrib.layers.xavier_initializer(),
                            expected_shape = [kernel_size, kernel_size, in_channel, out_channel], 
                            name="filter"+str(in_channel)+str(out_channel), 
-                           dtype=tf.float32)
+                           dtype=tf.float64)
         
 def conv_block(features, f, activation_fn, phase, k):
     conv = tf.layers.conv2d(inputs=features, filters=f, kernel_size=[k, k], strides=[1, 1], padding="SAME")
@@ -43,7 +43,7 @@ class deep_net():
         with tf.variable_scope(scope):
             self.lr = lr
             self.phase = phase #whether training or not, for batch norm
-            self.s_t_in = tf.placeholder(dtype=tf.float32, shape=[None, board_size, board_size, num_channels])
+            self.s_t_in = tf.placeholder(dtype=tf.float64, shape=[None, board_size, board_size, num_channels])
             self.tower0 = conv_block(self.s_t_in, 256, tf.nn.relu, self.phase, 3)
             
             # residual tower
@@ -56,7 +56,7 @@ class deep_net():
             pre_p = conv_block(self.get_tower(height), 2, tf.nn.relu, self.phase, 1)
             self.pre_p = tf.contrib.layers.flatten(pre_p)
             self.p_w_illegal = tf.contrib.layers.fully_connected(self.pre_p, num_outputs=pow(board_size,2), activation_fn=tf.nn.softmax) 
-            self.legal_moves = tf.placeholder(dtype=tf.float32, shape=[None, pow(board_size,2)])
+            self.legal_moves = tf.placeholder(dtype=tf.float64, shape=[None, pow(board_size,2)])
             p = tf.multiply(self.p_w_illegal, self.legal_moves)
             self.p = tf.divide(p, tf.reduce_sum(p))  #doesn't use softmax because want to preserve 0's
             
@@ -67,8 +67,8 @@ class deep_net():
             self.v = tf.contrib.layers.fully_connected(self.pre_v, num_outputs=1, activation_fn=tf.nn.tanh) 
     
             #reward signal and update
-            self.z = tf.placeholder(dtype=tf.float32, shape=[None,1])
-            self.pi = tf.placeholder(dtype=tf.float32, shape=[None,pow(board_size,2)])
+            self.z = tf.placeholder(dtype=tf.float64, shape=[None,1])
+            self.pi = tf.placeholder(dtype=tf.float64, shape=[None,pow(board_size,2)])
             self.vars = tf.trainable_variables() 
             L2 = tf.add_n([tf.nn.l2_loss(w) for w in self.vars])
             self.loss = tf.transpose(tf.squared_difference(self.z,self.v)) - tf.nn.softmax_cross_entropy_with_logits(labels=self.pi,logits=self.p) + c*L2
