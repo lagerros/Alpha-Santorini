@@ -1,7 +1,7 @@
 import numpy as np
 import math
-#from profilestats import profile
 import copy
+import warnings
 
 c_puct = 5 # from 2016 paper
 tau = 1    # from 2017 paper
@@ -51,36 +51,50 @@ def legalV(nodes):
         preV = np.stack([[int(x in nodes[i].A) for x in range(board_size**2)] for i in range(len(nodes))], 0)            
     return preV 
 
-def softmax(x):  # gotten from here: https://stackoverflow.com/questions/34968722/how-to-implement-the-softmax-function-in-python
-    """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
-
-
 def add_zeros_at_illegal_moves(pi_s, game):
     x = np.zeros(shape=[pow(board_size,2)])
     np.add.at(x, game.legal_moves(), pi_s)
     return x
-     
+ 
+def uniform_over_A(node):
+    return [1/len(node.A) if a in node.A else 0 for a in range(25)]    
     
 ########################
 # EVALUATION FUNCTIONS #
 #######################
 
-def evaluate(nodes, net, sess):   
-    if type(nodes) != list:
-        nodes = [nodes]
-    s = np.stack([nodes[i].stack_s for i in range(len(nodes))], 0)
+def evaluate(node, net, sess):   
+    s = np.expand_dims(node.stack_s, 0) 
     S, n = r(s)
-    legal, n = r(legalV(nodes), n)
+    legal, n = r(legalV(node), n)
     if without_net:
-        P, v = legalV(nodes[0]), -0.2 # 
+        return uniform_over_A(node), -0.2 # Nuisance parameters, without_net is just used to test % of compute cost due to tf
     else:
         P, v = net.P_and_v(S, legal, sess)  # randomly rotate the input to the network      
-        P = anti_r(P, n)
+        P = anti_r(P, n)[0,:]
+        
+        v = v[0,0]
 
-        if len(nodes) == 1:
-            v = v[0,0]
+    # Occasionally the weights take on extreme values which cause derivative problems.
+    # This is quite a deep issue and currently the best solution is unfortunately
+    # to MVP it.
+    if np.sum(np.isnan(P)) > 0:
+        warnings.warn("Beware, the policy head outputs NaNs...\n It's probably because \
+                      it has divided by zero, as the activation for all legal moves\
+                      has disappeared due to huge activation of illegal moves before \
+                      the softmax")
+        P = uniform_over_A(node)
+
+    elif np.abs(np.sum(node.P)-1) < 0.01: # Ensure P is a density function, with some margin for error
+        warnings.warn("Beware, the policy head does not output a proper distribution...\
+                      renormalizing for now")
+        P = P/np.sum(P)
+    
+    elif np.sum(np.nonzero(P)[0] == node.A) == len(node.A):
+        warnings.warn("Beware, the policy head gives some legal moves 0 probability...\
+                       adding uniform noise to handle it for now")
+        P = np.dot(0.95,P) + np.dot(0.05,uniform_over_A(node))    
+    
     return P, v
 
 def N(node, a):         
@@ -128,32 +142,39 @@ class node():
         return getattr(self, 'a'+str(a))
     
     def expand(self, game):
-        if self.leaf == 1:  #don't expand if you've already done so before
+        if self.leaf == 1:  #don't expand if we've already done so before
             for a in self.A:
-                setattr(self, 'a'+str(a), edge(game, a, 0.3, self))  #this 0.3 is irrelevant and shuold be removed!
+                setattr(self, 'a'+str(a), edge(game, a, self))  
             self.leaf = 0
             
             if debug:
                 print(self, "is no longer a leaf\n")
                 
     def add_dirichlet_noise(self):
+        if debug:
+            print("Adding dirichlet noise")
         eps = 0.25
-        alphas = [0.03 if i > 0 else 0 for i in self.P] #change to p later
+        alphas = [0.03 if i in self.A else 0 for i in range(25)] #change to p later
+
         try: # sometimes low alphas cause problems 
             noise = np.random.dirichlet(alphas)
-            self.P = (1-eps)*self.P + eps*noise
+            self.P = np.dot(1-eps,self.P) + np.dot(eps,noise)
         except:
+            warnings.warn("Problems with low alphas in the Dirichlet function...")
+            #just some uniform noise
+            noise = uniform_over_A(self) 
+            self.P = np.dot(1-eps,self.P) + np.dot(eps,noise)
             pass
         assert np.shape(self.P) == (board_size**2,)
         
 class edge():
-    def __init__(self, game, a, P, up_node):
+    def __init__(self, game, a, up_node):
         self.s = game.render()
         self.a = a
         self.N = 0
         self.W = 0
-        self.Q = 0
-        self.P = P
+        self.Q = 0 
+        self.P = 1/25
         self.up_node = up_node
         self.down_node = None 
     
@@ -207,7 +228,7 @@ class MCTS():
             self.root.expand(self.game) 
             self.clear_unnecessary_branches()    
             if debug:
-                print("assigning node ", a, " as new root")
+                print("assigning node ", a, self.root, " as new root")
         except:  # occurs if there are no available moves
             pass
      
@@ -241,15 +262,10 @@ class MCTS():
         
         #Get values to be passed upwards
         if use_net:
-            P, v = evaluate(node, self.net, self.sess)
-            node.P = P[0,:]
-            if not(without_net):
-                assert np.shape(node.P) == (board_size**2,)
-                assert np.abs(np.sum(node.P)-1) < 0.01 # Ensure P is a density function, with some margin for error
+            node.P, node.v = evaluate(node, self.net, self.sess)
             for a in node.A:
                 node.get(a).P = node.P[a]
-            node.v = v
-            self.backup_v = v
+            self.backup_v = node.v
         else:
             self.backup_v = self.game.outcome 
             
@@ -275,21 +291,9 @@ class MCTS():
         node.depth = 0
         node.expand(self.game)
         
-        # Get initial search probabilities
+        # Get initial search probabilities and outcom expectation (used to consider resigning)
         if len(node.P) == 0:
-            if without_net:
-                v, temp_P = 0, legalV(node) 
-                node.v = v 
-            else:
-                temp_P, v = self.net.P_and_v(np.expand_dims(node.stack_s,0), legalV(node), self.sess) 
-                node.v = v[0,0]
-
-            node.P = temp_P[0]
-            if not(without_net):
-                assert np.shape(node.P) == (board_size**2,)
-                assert np.abs(np.sum(node.P)-1) < 0.01 # Ensure P is a density function, with some margin for error
-
-        assert np.sum(np.nonzero(node.P)[0] == node.A) == len(node.A)
+            node.P, node.v = evaluate(node, self.net, self.sess) 
 
         if self.game.turn_count < 15: #Increased exploration
             node.add_dirichlet_noise()
@@ -323,16 +327,16 @@ class MCTS():
                     
                 else: # simulation is not over
                         
-                    if node.leaf: # or len(node.P) == 0:
+                    if node.leaf: 
                         #expand
                         node.expand(self.game)
-                        node.leaf = 0
+                        if debug:
+                            print("This is a leaf, so expanding.") 
                         
                         #evaluate        
                         node, self.k = self.backup(node, self.k, use_net=1)
                         
-                        if debug:
-                            print("This is a leaf, so expanding. Node after evaluation:\n", node)
+                        
                             
                     else:
                         #select
