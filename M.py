@@ -79,20 +79,24 @@ def evaluate(node, net, sess):
     # This is quite a deep issue and currently the best solution is unfortunately
     # to MVP it.
     if np.sum(np.isnan(P)) > 0:
-        warnings.warn("Beware, the policy head outputs NaNs...\n It's probably because \
-                      it has divided by zero, as the activation for all legal moves\
-                      has disappeared due to huge activation of illegal moves before \
-                      the softmax")
+        warnings.warn("Beware, the policy head outputs NaNs...\n It's probably because" \
+                      "it has divided by zero, as the activation for all legal moves"   \
+                      "has disappeared due to huge activation of illegal moves before"  \
+                      "the softmax")
+        print(np.reshape(P, [5,5]))
         P = uniform_over_A(node)
 
-    elif np.abs(np.sum(node.P)-1) < 0.01: # Ensure P is a density function, with some margin for error
-        warnings.warn("Beware, the policy head does not output a proper distribution...\
-                      renormalizing for now")
+    elif np.abs(np.sum(P)-1) > 0.01: # Ensure P is a density function, with some margin for error
+        warnings.warn("Beware, the policy head does not output a proper distribution..." \
+                      "renormalizing for now")
+        print(np.reshape(P, [5,5]))
+        print(np.sum(P))
         P = P/np.sum(P)
     
-    elif np.sum(np.nonzero(P)[0] == node.A) == len(node.A):
-        warnings.warn("Beware, the policy head gives some legal moves 0 probability...\
-                       adding uniform noise to handle it for now")
+    elif np.sum(np.nonzero(np.reshape(P, [25,]))[0] != np.array(node.A)) == len(node.A):
+        warnings.warn("Beware, the policy head gives some legal moves 0 probability..." \
+                       "adding uniform noise to handle it for now")
+        print(np.reshape(P, [5,5]))
         P = np.dot(0.95,P) + np.dot(0.05,uniform_over_A(node))    
     
     return P, v
