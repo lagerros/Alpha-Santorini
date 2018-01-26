@@ -1,5 +1,5 @@
 # Alpha-Santorini
-In short: Alpha Go Zero applied to the game Santorini. Work in progress.
+In short: Alpha Go Zero applied to the game Santorini. Trains, but slowly. Work in progress.
 
 ## The project
 I replicated AlphaGo Zero from scratch in an attempt to get hands-on experienced with deep learning. I chose to apply it to the game of Santorini in order to create an unhackable challenge. Santorini has never been solved (due to limited attempts, rather than intrinsic difficulty!), so there would be no possibility of me, as a human, overfitting my own learning, for example by extensively copying someone else’s code. The only way of solving the challenge was by _actually doing it_. If we want to optimize, we should practice what we preach! :) 
