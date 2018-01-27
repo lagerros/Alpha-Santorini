@@ -3,12 +3,24 @@ import math
 import copy
 import warnings
 
-c_puct = 5 # from 2016 paper
-tau = 1    # from 2017 paper
+####################
+# HYPERPARAMETERS  #
+####################
+# For the Dirichlet distribution adding noise to moves probabilties for increased exploration
+alpha = 0.03
+eps = 0.25
 
+# Used to balance exploration and exploitation
+c_puct = 5 # from Silver et al. (2016)
+# Softmax temperature for final move selection 
+tau = 1    # from Silver et al. (2017) 
+
+#Other
 board_size = 5
-debug = 0
-without_net = 0 # can be used to compare performance with or without network
+debug = False # If true, prints an online description of the tree search
+without_net = False # If false, naively assigns a uniform prior to moves and 0 evaluation
+                    # to non-final board states. Can be used to compare performance with or without network.
+
 
 ####################
 # HELPER FUNCTIONS #
@@ -17,8 +29,8 @@ without_net = 0 # can be used to compare performance with or without network
 def r(s, pre_n=-1): #MVP:ing rotations so missing some symmetries
     '''Rotate network input before each evaluation for increased robustness'''
     in_shape = np.shape(s)
-    if in_shape[1] == 25:
-        s = np.reshape(s, [-1,5,5]) # in order to flip legal moves, which have different input dimensions than states
+    if in_shape[1] == board_size**2:
+        s = np.reshape(s, [-1,board_size,board_size]) # in order to flip legal moves, which have different input dimensions than states
     if pre_n > 0:
         n = pre_n    
     else:    
@@ -26,19 +38,19 @@ def r(s, pre_n=-1): #MVP:ing rotations so missing some symmetries
     
     s = np.rot90(s, n, (1,2))
         
-    if in_shape[1] == 25:
-        s = np.reshape(s, [-1,5**2]) 
+    if in_shape[1] == board_size**s:
+        s = np.reshape(s, [-1,board_size**2]) 
         
     assert in_shape == np.shape(s)
     
     return s, n 
 
-def anti_r(p, n):
+def anti_r(rotated_P, n):
     '''Reverse rotation'''
-    p = np.reshape(p, [-1, 5, 5])  # fix up naming conflict with P later
-    p = np.rot90(p, -n, (1,2))
-    p = np.reshape(p, [-1, 5**2])
-    return p   
+    rotated_P = np.reshape(rotated_P, [-1, board_size, board_size])  # fix up naming conflict with P later
+    rotated_P = np.rot90(rotated_P, -n, (1,2))
+    rotated_P = np.reshape(rotated_P, [-1, board_size**2])
+    return rotated_P
 
 def c(obj):
     return copy.deepcopy(obj)
@@ -57,7 +69,7 @@ def add_zeros_at_illegal_moves(pi_s, game):
     return x
  
 def uniform_over_A(node):
-    return [1/len(node.A) if a in node.A else 0 for a in range(25)]    
+    return [1/len(node.A) if a in node.A else 0 for a in range(board_size**2)]    
     
 ########################
 # EVALUATION FUNCTIONS #
@@ -68,21 +80,17 @@ def evaluate(node, net, sess):
     S, n = r(s)
     legal, n = r(legalV(node), n)
     if without_net:
-        return uniform_over_A(node), -0.2 # Nuisance parameters, without_net is just used to test % of compute cost due to tf
+        return uniform_over_A(node), 0 # Nuisance parameters, without_net is just used to test % of compute cost due to tf
     else:
         P, v = net.P_and_v(S, legal, sess)  # randomly rotate the input to the network      
         P = anti_r(P, n)[0,:]
         
         v = v[0,0]
 
-    # Occasionally the weights take on extreme values which cause derivative problems.
-    # This is quite a deep issue and currently the best solution is unfortunately
-    # to MVP it.
     if np.sum(np.isnan(P)) > 0:
-        warnings.warn("Beware, the policy head outputs NaNs...\n It's probably because" \
-                      "it has divided by zero, as the activation for all legal moves"   \
-                      "has disappeared due to huge activation of illegal moves before"  \
-                      "the softmax")
+        warnings.warn("Beware, the policy head outputs NaNs...\n Check the usual suspects" \
+                      "to make sure gradients aren't exploding: clipping, learning rate,"   \
+                      "batch norm settings")
         print(np.reshape(P, [5,5]))
         P = uniform_over_A(node)
 
@@ -97,7 +105,7 @@ def evaluate(node, net, sess):
         warnings.warn("Beware, the policy head gives some legal moves 0 probability..." \
                        "adding uniform noise to handle it for now")
         print(np.reshape(P, [5,5]))
-        P = np.dot(0.95,P) + np.dot(0.05,uniform_over_A(node))    
+        P = np.dot(0.95,P) + np.dot(0.05,uniform_over_A(node))  
     
     return P, v
 
@@ -117,7 +125,9 @@ def N_tot(node, tau):
         total += N(node,b)**(1/tau)
     return total
 
-def U(node, a):         
+def U(node, a):   
+    '''This function scores the exploratory value of moves, using a variant of the
+       Upper Confidence Bound algorithm complemented with an optimized prior on move probability'''      
     N_total = math.sqrt(N_tot(node, 1))
     U = c_puct * P(node, a) * N_total/(1+N(node, a))
     return U
@@ -125,9 +135,12 @@ def U(node, a):
 def pi(a, s_0, tau):     
     return (N(s_0, a)**(1/tau)) / N_tot(s_0, tau)
 
-##  BUILDING A TREE
+################################
+# CONSTRUCTING THE SEARCH TREE #
+###############################
 
 class node():
+    '''Each node stores a set of summary statistics '''
     def __init__(self, game, up_edge):  
         self.s = game.s()
         self.stack_s = game.stack_s() 
@@ -157,8 +170,7 @@ class node():
     def add_dirichlet_noise(self):
         if debug:
             print("Adding dirichlet noise")
-        eps = 0.25
-        alphas = [0.03 if i in self.A else 0 for i in range(25)] #change to p later
+        alphas = [alpha if i in self.A else 0 for i in range(25)] #change to p later
 
         try: # sometimes low alphas cause problems 
             noise = np.random.dirichlet(alphas)
@@ -172,13 +184,15 @@ class node():
         assert np.shape(self.P) == (board_size**2,)
         
 class edge():
+    '''Each edge (state, action) stores a set of summary statistics that are updated
+       by traversing the tree'''
     def __init__(self, game, a, up_node):
         self.s = game.render()
         self.a = a
         self.N = 0
         self.W = 0
         self.Q = 0 
-        self.P = 1/25
+        self.P = 1/25 # P is initialized uniformly, and updated as soon as a network evaluation is run
         self.up_node = up_node
         self.down_node = None 
     
@@ -191,16 +205,21 @@ class edge():
         self.Q = self.W/self.N
     
     def create_down_node(self, game):
-        if self.down_node == None:
+        '''To save memory, nodes are only initialized upon being visited'''
+        if self.down_node == None: # check whether node has not bene previously initialised
             self.down_node = node(game, self) 
-        try:   # root node has no up_node
+        try:   # this fails in case the search starts from a root without a parent node
             self.down_node.depth = self.up_node.depth+1
         except:
             pass
         
 class MCTS():
+    '''Main class that generates the tree data structure and traverses it, 
+       guided by the deep networks for estimating a prior on moves and the 
+       value of a given state. For details, see Silver et al. (2017), https://www.nature.com/articles/nature24270'''
+       
     def __init__(self, game, net, sess, explore=True):
-        self.game = game # currently inspected game
+        self.game = game # The search manipulates the actual game object rather than a copy of it. 
         self.root = node(self.game, None)
         self.backup_v = 0
         self.depth = 0
@@ -215,7 +234,7 @@ class MCTS():
         return "Tree search currently inspecting state:\n%s\nRuns left=%s\nCurrent depth=%s" % (self.game.render(), self.k, self.depth)
         
     def prepare_next_move(self):
-        # removing unnecessary tree branches that will now never be visited
+        # Saving memory by removing unnecessary tree branches that will now never be visited
         a = self.move
         self.clear_unnecessary_branches()
             
@@ -226,7 +245,7 @@ class MCTS():
             print("assigning node ", a, self.root, " as new root")
                            
     def prepare_adversarial_move(self, a): 
-        # removing unnecessary tree branches that will now never be visited  
+        # Like prepare_next_move but for an opponent move. Completed by finish_adversarial_move 
         self.move = a      
         try:          
             self.root.expand(self.game) 
@@ -236,7 +255,8 @@ class MCTS():
         except:  # occurs if there are no available moves
             pass
      
-    def finish_adversarial_move(self, a):   
+    def finish_adversarial_move(self, a): 
+        # A bit untidy that the function has to split up like this, should fix in future version!
         self.root.get(a).create_down_node(self.game) 
         self.root = self.root.get(a).down_node 
                                  
@@ -246,7 +266,7 @@ class MCTS():
         for b in A:
             delattr(self.root, 'a'+str(b))
         if debug:
-                print("removing subtrees under moves ", A)
+            print("removing subtrees under moves ", A)
                 
     def consider_resigning(self, v_resign, observe_games=False):
         ''' Resign game if chance of winning below v_resign'''
@@ -275,7 +295,7 @@ class MCTS():
             
         #Pass values upwards    
         while self.depth > 0:
-            node.up_edge.add_backup_stats(self.backup_v) # add backup stats (should make it clearer that's what's happening)
+            node.up_edge.add_backup_stats(self.backup_v) 
             self.depth -= 1
             if debug:
                 print("evaluating position and passing edge statistics upwards\n"
@@ -290,6 +310,9 @@ class MCTS():
 
     
     def run_simulation(self, k):
+        '''This function runs a tree search of depth k and returns the selected move, 
+           the predicted search probabilities, the actual search probabilties, and
+           the state evaluation. All other methods in the MCTS class are just helper methods'''
         self.k = k
         node = self.root
         node.depth = 0
@@ -312,8 +335,8 @@ class MCTS():
                 print(self, "\n\n")
             
             if self.game.outcome != None: # game is over 
-                node, self.k = self.backup(node, self.k, use_net=0)
-                if debug:
+                node, self.k = self.backup(node, self.k, use_net=0) # We don't use the net as
+                if debug:                                           # an actual end result is available
                     print("Adding statistics to: ", node.up_edge, "\n\n")   
             else:    
                 if self.k == 0: #simulation is over
@@ -327,23 +350,16 @@ class MCTS():
                     self.move = move
                     self.pi_s = add_zeros_at_illegal_moves(pi_s, self.game)
                     
-                    return self.move, self.pi_s, self.root.P
+                    return self.move, self.pi_s, self.root.P, self.root.v
                     
                 else: # simulation is not over
-                        
                     if node.leaf: 
                         #expand
-                        node.expand(self.game)
-                        if debug:
-                            print("This is a leaf, so expanding.") 
-                        
+                        node.expand(self.game)                        
                         #evaluate        
-                        node, self.k = self.backup(node, self.k, use_net=1)
-                        
-                        
-                            
-                    else:
-                        #select
+                        node, self.k = self.backup(node, self.k, use_net=1) # We have to use nets to estimate
+                    else:                                                   # the value of the current state, 
+                        #select                                             # as an outcome cannot yet be seen
                         i = self.game.outcomes[self.game.player] # Ensures that positive Q always means winning (-1 is player 0, 1 if player 1)
                         idx = np.argmax( [i*Q(node,a) + U(node,a) for a in node.A] )
                         a = moves[idx]
@@ -351,10 +367,8 @@ class MCTS():
                         
                         node.get(a).create_down_node(self.game)
                         new_node = node.get(a).down_node
-                                           
-                        self.depth += 1
-                        
                         node = new_node
+                        self.depth += 1
 
                         if debug:
                             print("Selected move ", a, " going down ", node.up_edge, "\n\n")
